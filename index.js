@@ -36,7 +36,12 @@ document.addEventListener("DOMContentLoaded", function(event) {
     joinButton = document.getElementById('join-button'),
     randomButton = document.getElementById('random-button'),
     //raf stands for requestAnimationFrame, enables drawing to occur
-    raf;
+    raf,
+    myCvClickCount = 0,
+    peerCvClickCount = 0;
+    //object arrays to track emoji positions for later collisions
+    const peerObjLoc = {};
+    const myObjLoc = {};
 
   //image assignment, we can abstract this later
   // let emoImg = new Image();
@@ -216,16 +221,26 @@ document.addEventListener("DOMContentLoaded", function(event) {
                         }
                       } else if (dataObj.emoji) {
 
+                        peerCvClickCount ++;
+                        console.log(peerCvClickCount);
+                        console.log("id", dataObj.id);
+                        peerObjLoc[dataObj.id] = dataObj.pos;
+
                         //remote display bounce animation!
                         let emoImg = new Image();
                         emoImg.src = dataObj.currentImg;
 
                         temp = currentAnimation;
                         currentAnimation = eval('(' + dataObj.animation + ')');
-                        currentAnimation(peerCanvas, peerContext, event, dataObj.position, emoImg);
+                        currentAnimation(peerCanvas, peerContext, event, dataObj.position, emoImg, dataObj.id);
                         currentAnimation = temp;
 
                       } else if (dataObj.peerEmoji) {
+
+                        myCvClickCount ++;
+                        console.log(myCvClickCount);
+                        console.log("id", dataObj.id);
+                        peerObjLoc[dataObj.id] = dataObj.pos;
 
                         //local display bounce animation!
                         let emoImg = new Image();
@@ -233,7 +248,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
 
                         temp = currentAnimation;
                         currentAnimation = eval('(' + dataObj.animation + ')');
-                        currentAnimation(myCanvas, myContext, event, dataObj.position, emoImg);
+                        currentAnimation(myCanvas, myContext, event, dataObj.position, emoImg, dataObj.id);
                         currentAnimation = temp;
                       }
 
@@ -318,7 +333,13 @@ document.addEventListener("DOMContentLoaded", function(event) {
                     myCanvas.addEventListener('click', function(event) {
                         //gets position based mouse click coordinates, restricted
                         //to canvas rectangle, see function logic in function store
+                        myCvClickCount ++;
+                        console.log(myCvClickCount);
+
                         let myPosition = getCursorPosition(myCanvas, event);
+                        let clickId = myCvClickCount;
+                        myObjLoc[clickId] = myPosition;
+                        console.log(myObjLoc);
 
                         let emoImg = new Image();
                         emoImg.src = currentImg;
@@ -326,6 +347,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
                         let myCanvasObj = JSON.stringify({
                           animation: currentAnimation.toString(),
                           emoji: 'yes',
+                          id: clickId,
                           currentImg: currentImg,
                           position: {
                             x: myPosition.x,
@@ -334,7 +356,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
                         });
 
                         //animation for local display and data transmission to peer
-                        currentAnimation(myCanvas, myContext, event, myPosition, emoImg);
+                        currentAnimation(myCanvas, myContext, event, myPosition, emoImg, clickId);
                         peer.send(myCanvasObj);
 
                       }, false)
@@ -404,18 +426,25 @@ document.addEventListener("DOMContentLoaded", function(event) {
                       //remote display animation this to data channel logic easy peasy
                       peerCanvas.addEventListener('click', function(event) {
 
+                          peerCvClickCount ++;
+                          console.log(peerCvClickCount);
+
+
                           //gets position based mouse click coordinates, restricted
                           //to canvas rectangle, see function logic in function store
                           let peerPosition = getCursorPosition(peerCanvas, event);
+                          let clickId = peerCvClickCount;
+
 
                           let emoImg = new Image();
                           emoImg.src = currentImg;
 
-                          currentAnimation(peerCanvas, peerContext, event, peerPosition, emoImg);
+                          currentAnimation(peerCanvas, peerContext, event, peerPosition, emoImg, clickId);
 
                           let peerCanvasObj = JSON.stringify({
                             animation: currentAnimation.toString(),
                             peerEmoji: 'yes',
+                            id: clickId,
                             currentImg: currentImg,
                             position: {
                               x: peerPosition.x,
@@ -444,8 +473,17 @@ document.addEventListener("DOMContentLoaded", function(event) {
 
 
   //function store//
+  function collision(obj, pos){
+    collisionCheck = false;
+    for (prop in obj){
+      if (prop === position) {
+        collisionCheck = true
+      }
+    }
+    return collisionCheck;
+  }
 
-  function bounce(cv, ctx, evt, pos, emoImg) {
+  function bounce(cv, ctx, evt, pos, emoImg, id) {
     let onload = emoImg.onload;
 
     //this object keeps track of the movement, loads the images, and determines
@@ -455,10 +493,12 @@ document.addEventListener("DOMContentLoaded", function(event) {
       y: pos.y,
       vx: 5,
       vy: 2,
+      id: id,
       onload: function() {
         ctx.drawImage(emoImg, this.x - emoImg.width / 2, this.y - emoImg.height / 2);
       }
     };
+    console.log(emoticon);
 
     //initial image load on canvas
     emoticon.onload();
@@ -484,6 +524,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
         ctx.drawImage(emoImg, this.x - emoImg.width / 2, this.y - emoImg.height / 2);
       }
     };
+
     //initial image load on canvas
     emoticon.onload();
   }
@@ -566,17 +607,21 @@ document.addEventListener("DOMContentLoaded", function(event) {
   //end drawVideo//
 
   //canvas draw function for velocity motion
-  function velocity(obj, ctx, cv, cb, emoImg) {
+  function velocity(posObj, obj, ctx, cv, cb, emoImg) {
+
     ctx.clearRect(obj.x - emoImg.width / 2 - 5, obj.y - emoImg.height / 2 - 5, emoImg.width + 8, emoImg.height + 8);
     obj.onload();
-    obj.x += obj.vx;
-    obj.y += obj.vy;
-    if (obj.y + obj.vy > cv.height || obj.y + obj.vy < 0) {
-      obj.vy = -obj.vy;
-    }
-    if (obj.x + obj.vx > cv.width || obj.x + obj.vx < 0) {
-      obj.vx = -obj.vx;
-    }
+    posObj.obj.id[x] = obj.x += obj.vx;
+    posObj.obj.id[y] = obj.y += obj.vy;
+
+
+        if (obj.y + obj.vy > cv.height || obj.y + obj.vy < 0) {
+          obj.vy = -obj.vy;
+        }
+        if (obj.x + obj.vx > cv.width || obj.x + obj.vx < 0) {
+          obj.vx = -obj.vx;
+        }
+
     raf = window.requestAnimationFrame(cb);
   }
   //end velocity//
